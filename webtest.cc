@@ -29,7 +29,7 @@
 #include <assert.h>
 #include <getopt.h>
 #include <map>
-#include "webtest.h"
+#include "base_code.h"
 
 //-------------------------------------------------------------------------
 // Loger
