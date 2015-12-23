@@ -1,9 +1,9 @@
 /*
  * =====================================================================================
  *
- *       Filename:  webtest.h
+ *       Filename:  base_code.hpp
  *
- *    Description:  webtest header
+ *    Description:  Common function
  *
  *        Version:  1.0
  *        Created:  2015年11月25日 16时11分13秒
@@ -27,38 +27,48 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <assert.h>
 
 // MutexLock
 class MutexLock
 {
 public:
-	MutexLock()
+	MutexLock(): holder_(0)
 	{
 		pthread_mutex_init(&mutex_, NULL);
 	}
-	MutexLock(const MutexLock& rx)
-	{
-		mutex_ = rx.mutex_;
-	}
 	~MutexLock()
 	{
+		assert(holder_ == 0);
 		pthread_mutex_destroy(&mutex_);
 	}
-	void lock(){ pthread_mutex_lock(&mutex_);}
-	void unlock(){ pthread_mutex_unlock(&mutex_);}
+	bool isLockedBySelf() {return holder_ == pthread_self();}
+	void lock()
+	{ 
+		pthread_mutex_lock(&mutex_);
+		holder_ = pthread_self();
+	}
+	void unlock()
+	{ 
+		holder_ = 0;
+		pthread_mutex_unlock(&mutex_);
+	}
+	pthread_mutex_t* getPthreadMutex(){return &mutex_;}
 
 private:
+	MutexLock(const MutexLock& rx);
 	MutexLock& operator=(const MutexLock&);
 
 private:
 	pthread_mutex_t mutex_;
+	pthread_t holder_;
 };
 
 // MutexLockGuard
 class MutexLockGuard
 {
 public:
-	MutexLockGuard(MutexLock& lock):mutex_lock_(lock)
+	explicit MutexLockGuard(MutexLock& lock):mutex_lock_(lock)
 	{
 		mutex_lock_.lock();
 	}
@@ -76,6 +86,63 @@ private:
 	MutexLock& mutex_lock_;
 };
 
+//Condtion for threading
+class Condition
+{
+public:
+	explicit Condition(MutexLock& mutex):mutex_(mutex)
+	{ 
+		pthread_cond_init(&cond_, NULL);
+	}
+	~Condition(){pthread_cond_destroy(&cond_);}
+
+	void wait()
+	{
+		pthread_cond_wait(&cond_, mutex_.getPthreadMutex());
+	}
+
+	void notify()
+	{
+		pthread_cond_signal(&cond_);
+	}
+	void notifyAll()
+	{
+		pthread_cond_broadcast(&cond_);
+	}
+
+private:
+	MutexLock& mutex_;
+	pthread_cond_t cond_;
+};
+
+//CountDownLatch
+class CountDownLatch
+{
+public:
+	explicit CountDownLatch(int count):count_(count), cond_(mutex_){}
+	void wait()
+	{
+		MutexLockGuard lock(mutex_);
+		while (count_ > 0)
+		{
+			cond_.wait();
+		}
+	}
+	void countDown()
+	{
+		MutexLockGuard lock(mutex_);
+		count_--;
+		if (count_ == 0)
+		{
+			cond_.notifyAll();
+		}
+	}
+private:
+	int count_;
+	mutable MutexLock mutex_;
+	Condition cond_;
+
+};
 
 // FileHandle
 class FileHandle
@@ -83,7 +150,6 @@ class FileHandle
 public:
     FileHandle(const char* s, const char* sMode):file_name_(s)
     {
-        //std::cout<<file_name_<<" opened"<<std::endl;
         file_ = fopen(s, sMode);
 		if (file_ == NULL)
 		{
@@ -101,7 +167,6 @@ public:
     }
     ~FileHandle()
     {
-        //std::cout<<file_name_<<" closed"<<std::endl;
 		if (file_)
         	fclose(file_);
     }
@@ -151,7 +216,6 @@ public:
 				tt.tv_usec/1000, getpid() ,sFile, iLine);
 		vfprintf(file_, sFormat, sList);
 		fprintf(file_, "\n");
-		fflush(file_);
 		va_end(sList);
 	}
 
@@ -171,6 +235,7 @@ private:
 //Loger log("webtest.log");
 //#define _ log._
 
+// To String
 #include <algorithm>
 template <typename T>
 inline std::string toString(const T& value)
@@ -194,14 +259,6 @@ inline std::string toString(const T& value)
 	std::reverse(buf, p);
 
 	return buf;
-	
-#if 0
-	std::string out;
-	std::strstream strs;
-	strs << value;
-	strs >> out;
-	return out;
-#endif
 }
 
 #endif
